@@ -148,6 +148,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
     )
     from kiro_crew.llm_helpers_parts.tool_approval import (  # noqa: F401
         ToolApprovalPolicy,
+        _no_approver_shell_commands,
         _orphan_reject_done,
         _orphan_rejects,
         _resolve_permission,
@@ -291,7 +292,9 @@ if TYPE_CHECKING:  # names it serves from outside the family, from their homes
         sensitive_write_path_refusal,
     )
     from kiro_crew.security.readonly_bash import (  # noqa: F401
+        RUNS_GIT,
         command_invokes_git,
+        command_names_git,
         is_read_only_bash,
     )
     from kiro_crew.sel import sel as _sel  # noqa: F401

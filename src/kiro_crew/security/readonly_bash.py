@@ -1577,6 +1577,263 @@ def _runs_git_at_a_command_position(words: list[str]) -> bool:
     return False
 
 
+#: What :func:`command_names_git` returns for a command whose program is git.
+RUNS_GIT = "it runs git"
+
+#: git's program names. A basename is lower-cased once before the ``in`` test, the
+#: only normalisation: macOS and Windows filesystems are case-insensitive, so
+#: ``GIT`` runs git there. The suffixes are Windows' default ``PATHEXT``.
+_GIT_PROGRAM_NAMES = frozenset({"git", "git.exe", "git.com", "git.bat", "git.cmd"})
+
+#: Shell keywords that open a command position without being its program.
+_GIT_WALK_KEYWORDS = frozenset(
+    {"!", "{", "}", "if", "then", "elif", "else", "fi", "while", "until", "do", "done"}
+    | {"esac", "coproc"}
+)
+
+#: Programs that run a later word of their argv as a program: ``_PROGRAM_RUNNERS``
+#: plus the ones :func:`command_invokes_git` does not unwrap.
+_GIT_WALK_RUNNERS = _PROGRAM_RUNNERS | {
+    "watch",
+    "flock",
+    "ionice",
+    "parallel",
+    "setsid",
+    "stdbuf",
+    "doas",
+    "chronic",
+}
+
+#: Programs whose ``-c`` (or ``/c``, ``-Command``) argument is a command line.
+_SCRIPT_SHELLS = frozenset({"sh", "bash", "dash", "zsh", "ksh", "mksh", "ash", "fish"})
+_SCRIPT_FLAGS = {"cmd": ("/c", "/k"), "powershell": ("-c", "-command"), "pwsh": ("-c", "-command")}
+
+#: Options whose value is a program: ``rg --pre PROG``, ``find -exec PROG ...``.
+_PROGRAM_OPTIONS = {"rg": ("--pre",), "find": ("-exec", "-execdir", "-ok", "-okdir")}
+
+#: Every program whose arguments :func:`command_names_git` reads as a command line.
+_RUNS_A_COMMAND_LINE = (
+    _GIT_WALK_RUNNERS | _SCRIPT_SHELLS | _SCRIPT_FLAGS.keys() | _PROGRAM_OPTIONS.keys() | {"eval"}
+)
+
+#: Redirection operators as ``shlex`` returns them with ``punctuation_chars``.
+_REDIRECT_OPERATORS = frozenset(
+    {"<", ">", ">>", "<<", "<<<", "<>", ">|", "<&", ">&", "&>", "&>>", ">>&"}
+)
+
+#: ``bash -c`` inside ``eval`` inside ``env -S`` ... deeper than this cannot be read.
+_GIT_WALK_DEPTH = 8
+
+_SUBSTITUTION = "a command substitution runs a command that cannot be read from its text"
+
+
+def command_names_git(cmd: str) -> str:
+    """Why ``cmd`` may run git: the no-approver hook surface's check, "" when it cannot.
+
+    The command is split into words and operators by ``shlex``, the reader
+    :func:`is_read_only_bash` uses, with ``punctuation_chars`` so ``;``, ``&&``,
+    ``|``, a newline, ``(`` and a redirection end a word as bash ends it. At every
+    command position (after a separator, a keyword, ``VAR=value`` prefixes and
+    redirections) the program's basename, lower-cased, is looked up in
+    ``_GIT_PROGRAM_NAMES``: an exact ``in`` test, never a search of the text, so
+    ``grep digit`` and ``make docs VCS=git`` run no git. The command line a program
+    runs is read the same way: a ``bash -c`` / ``cmd /c`` script, ``eval``, ``env -S``,
+    ``find -exec`` and ``rg --pre``. After a runner (``env``, ``xargs``, ``timeout``
+    ...) each later word may be the program, since a runner's option values sit
+    before it, so ``xargs grep git`` refuses. A second reading that keeps
+    backslashes catches a Windows path (``C:\\tools\\git.exe``).
+
+    A program that cannot be read refuses with its own reason instead of
+    :data:`RUNS_GIT`: quoting ``shlex`` cannot resolve, an expansion or ANSI-C quote
+    (``$EDITOR``, ``$'\\x67it'``), a glob or brace list (``/usr/bin/g?t``, ``{g,}it``)
+    or an extglob (``+(gi)t``) as the program, a command or process substitution
+    anywhere (``$(...)``, a backtick, ``<(...)``), or nesting past
+    ``_GIT_WALK_DEPTH``. Not seen: a program that writes and runs git from its own
+    data (``python -c``, ``bash script.sh``, ``base64 -d | sh``). Pure text work,
+    linear in the command's length except for the bounded nesting.
+    """
+    text = cmd.replace("\r", "\n").replace("\\\n", "")
+    return _git_walk(text, 0, posix=True) or _git_walk(text, 0, posix=False)
+
+
+def _git_walk(text: str, depth: int, *, posix: bool) -> str:
+    if depth > _GIT_WALK_DEPTH:
+        return "it nests command lines too deeply to read"
+    lexer = shlex.shlex(text, posix=posix, punctuation_chars="();<>|&\n")
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return "its quoting cannot be read" if posix else ""
+    if not posix:
+        # The second reading only keeps backslashes; its quote characters go.
+        tokens = [t.replace('"', "").replace("'", "") for t in tokens]
+    commands: list[list[str]] = [[]]
+    skip_target = False
+    for i, tok in enumerate(tokens):
+        nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+        words = commands[-1]
+        if tok and not tok.strip("();<>|&\n"):  # an operator: punctuation only
+            if tok in _REDIRECT_OPERATORS:
+                skip_target = True
+                continue
+            if ("<" in tok or ">" in tok) and "(" in tok:
+                return _SUBSTITUTION if posix else ""
+            skip_target = "<" in tok or ">" in tok
+            if tok[0] == "(" and words:
+                if words[-1].endswith("$"):
+                    return _SUBSTITUTION if posix else ""
+                if len(words) == 1 and words[0] not in _GIT_WALK_KEYWORDS:
+                    if tok.startswith("()") or nxt.startswith(")"):
+                        words.clear()  # ``name() { ... }``: the body is read next.
+                    elif not _is_assignment(words[0]) and posix:
+                        return f"the program {words[0]!r} is a pattern, so it cannot be read"
+            commands.append([])
+            continue
+        if skip_target:
+            skip_target = False
+            continue
+        if nxt in _REDIRECT_OPERATORS and (tok.isdigit() or tok[:1] + tok[-1:] == "{}"):
+            continue  # ``2>`` or ``{fd}>``: a descriptor, not a word.
+        words.append(tok)
+    for words in commands:
+        reason = _simple_command_git(words, depth, posix=posix)
+        if reason:
+            return reason
+    return ""
+
+
+def _is_assignment(word: str) -> bool:
+    name, eq, _value = word.partition("=")
+    return bool(eq) and name.isascii() and name.isidentifier()
+
+
+def _simple_command_git(words: list[str], depth: int, *, posix: bool) -> str:
+    if posix and any("$(" in word or "`" in word for word in words):
+        return _SUBSTITUTION
+    i = 0
+    while i < len(words):
+        if words[i] == "function":
+            i += 2
+        elif words[i] in _GIT_WALK_KEYWORDS or _is_assignment(words[i]):
+            i += 1
+        elif words[i] in _PROGRAM_OPTIONS["find"]:
+            # ``shlex`` gives an escaped ``\;`` as ``;``, read as a separator, so a
+            # second ``find ... \; -exec PROG`` starts here; PROG is the program.
+            i += 1
+        else:
+            return _program_git(words[i:], depth, posix=posix)
+    return ""
+
+
+def _program_name(word: str) -> str:
+    return word.replace("\\", "/").rsplit("/", 1)[-1].lower()
+
+
+def _program_git(words: list[str], depth: int, *, posix: bool) -> str:
+    if depth > _GIT_WALK_DEPTH:
+        return "it nests command lines too deeply to read"
+    word, args = words[0], words[1:]
+    if posix:
+        unreadable = _unreadable_program(word)
+        if unreadable:
+            return unreadable
+    name = _program_name(word)
+    if name in _GIT_PROGRAM_NAMES:
+        return RUNS_GIT
+    stem = name.removesuffix(".exe")
+    if stem not in _RUNS_A_COMMAND_LINE:
+        return ""
+    if stem in _GIT_WALK_RUNNERS:
+        return _runner_git(stem, args, depth, posix=posix)
+    if stem == "eval":
+        return _git_walk(" ".join(args), depth + 1, posix=posix)
+    script = _script_argument(stem, args)
+    if script is not None:
+        return _git_walk(script, depth + 1, posix=posix)
+    for k, arg in enumerate(args):
+        for option in _PROGRAM_OPTIONS.get(stem, ()):
+            if arg == option and k + 1 < len(args):
+                reason, read_rest = _word_git(args, k + 1, depth, posix=posix)
+            elif arg.startswith(option + "="):
+                reason, read_rest = _word_git([arg.partition("=")[2]], 0, depth, posix=posix)
+            else:
+                continue
+            if reason or read_rest:
+                return reason
+    return ""
+
+
+def _unreadable_program(word: str) -> str:
+    if "$" in word:
+        return f"the program {word!r} is an expansion or ANSI-C quote, so it cannot be read"
+    if word in ("[", "[["):
+        return ""
+    if "*" in word or "?" in word or "[" in word:
+        return f"the program {word!r} is a glob, so it cannot be read"
+    if "{" in word and ("," in word or ".." in word):
+        return f"the program {word!r} is a brace list, so it cannot be read"
+    return ""
+
+
+def _word_git(args: list[str], k: int, depth: int, *, posix: bool) -> tuple[str, bool]:
+    """Read ``args[k]`` as a possible program; True when it read the rest as well.
+
+    Only a program that runs a command line takes the rest of the words, so an
+    ordinary word costs one check and a long argument list stays linear.
+    """
+    if _program_name(args[k]).removesuffix(".exe") in _RUNS_A_COMMAND_LINE:
+        return _program_git(args[k:], depth + 1, posix=posix), True
+    return _program_git(args[k : k + 1], depth + 1, posix=posix), False
+
+
+def _runner_git(runner: str, args: list[str], depth: int, *, posix: bool) -> str:
+    for k, arg in enumerate(args):
+        if runner == "env":
+            split = _env_split_string(args, k)
+            if split is not None:
+                reason = _git_walk(split, depth + 1, posix=posix)
+                if reason:
+                    return reason
+        if arg.startswith("-") or _is_assignment(arg):
+            continue
+        reason, read_rest = _word_git(args, k, depth, posix=posix)
+        if reason or read_rest:
+            return reason
+    return ""
+
+
+def _env_split_string(args: list[str], k: int) -> str | None:
+    """The command line ``env -S`` / ``--split-string`` at ``args[k]`` runs, or None."""
+    arg, following = args[k], args[k + 1] if k + 1 < len(args) else ""
+    if arg == "--split-string":
+        return following
+    if arg.startswith("--split-string="):
+        return arg.partition("=")[2]
+    if arg.startswith("-") and not arg.startswith("--") and "S" in arg:
+        return arg[arg.index("S") + 1 :] or following
+    return None
+
+
+def _script_argument(stem: str, args: list[str]) -> str | None:
+    """The command line a shell's ``-c`` (``cmd /c``, ``pwsh -Command``) runs, or None."""
+    if stem in _SCRIPT_SHELLS:
+        for k, arg in enumerate(args):
+            if arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:]:
+                rest = args[k + 1 :]
+                if rest[:1] == ["--"]:
+                    rest = rest[1:]
+                return rest[0] if rest else ""
+        return None
+    flags = _SCRIPT_FLAGS.get(stem, ())
+    for k, arg in enumerate(args):
+        if arg.lower() in flags:
+            return " ".join(args[k + 1 :])
+    return None
+
+
 def writes_through_redirect(cmd: str) -> bool:
     """Whether ``cmd`` writes through a redirect: :func:`_classify_bash`'s rule alone.
 

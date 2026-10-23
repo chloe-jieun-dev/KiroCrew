@@ -658,7 +658,13 @@ def _url_payload_command(n: int) -> str:
 #: Raised by 8 more, to 33,967, for the ``kirocrew-bin`` entry in
 #: ``paths_lists._WRITE_PROTECTED_HOME_PATHS``: the file-edit tool may not write the
 #: link that decides which ``kirocrew`` an agent shell runs. Deny-only.
-_PACKAGE_LINE_BUDGET = 33_967
+#: Raised by 257 more, to the true count 34,224, for
+#: ``readonly_bash.command_names_git``, the no-approver hook surface's git check: it
+#: splits the command into words and operators with ``shlex``, reads the program at
+#: each command position (and inside ``bash -c``, ``eval``, ``env -S``, a runner,
+#: ``find -exec`` and ``rg --pre``), and refuses when its basename is in a fixed set
+#: of git names or when that program cannot be read from the text.
+_PACKAGE_LINE_BUDGET = 34_224
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
