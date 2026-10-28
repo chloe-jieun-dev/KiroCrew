@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import threading
 from dataclasses import dataclass
 
 from aiohttp import web
@@ -621,6 +622,10 @@ def _maybe_consolidate(state, slot) -> None:
         )
 
 
+# The compare-and-store of ``_published_slot_keys``: this sync also runs off the loop.
+_PUBLISHED_SLOT_KEYS_LOCK = threading.Lock()
+
+
 def _sync_dashboard_slots(state: "DashboardState") -> None:
     """Publish the open slots' session keys to SessionManager and the surface registry.
 
@@ -629,6 +634,18 @@ def _sync_dashboard_slots(state: "DashboardState") -> None:
     (see :mod:`kiro_crew.session_surface`). A channel-born slot contributes its
     channel key, which is what both consumers must match against.
     """
-    keys = {effective_session_key(s) for s in state._slots.values()}
+    with _PUBLISHED_SLOT_KEYS_LOCK:
+        keys = {effective_session_key(s) for s in state._slots.values()}
+        previous: frozenset[str] = getattr(state, "_published_slot_keys", frozenset())
+        if not isinstance(previous, frozenset):
+            previous = frozenset()
+        gained = not keys <= previous
+        state._published_slot_keys = frozenset(keys)
     state.sessions.set_active_dashboard_slots(keys)
     set_dashboard_surfaced(keys)
+    # A newly open session leaves the Older Sessions listing, which tabs re-read only
+    # on a ``history`` frame; close and delete push their own, so a shrink sends none.
+    # Coalesced, because a bulk restore runs this sync once per created slot.
+    push_listing_refresh = getattr(state, "push_listing_refresh", None)
+    if gained and callable(push_listing_refresh):
+        push_listing_refresh()

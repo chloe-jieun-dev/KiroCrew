@@ -203,6 +203,29 @@ async def test_import_releases_the_construction_count_on_success(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_a_landed_import_refreshes_the_older_sessions_listing(monkeypatch):
+    """The slot is out of ``_slots`` while its transcript is saved, so another tab
+    can list it under Older Sessions then; the landing pushes one listing refresh,
+    and a refused import pushes none."""
+    from kiro_crew.dashboard import session_transfer as st
+
+    state = _stub_state(st, monkeypatch)
+    resp = await st.api_chat_slot_import(_make_request(state, _valid()))
+
+    assert resp.status == 200
+    state.push_listing_refresh.assert_called_once_with()
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError("disk gone")
+
+    refused = _stub_state(st, monkeypatch, save=_boom)
+    resp = await st.api_chat_slot_import(_make_request(refused, _valid()))
+
+    assert resp.status == 503
+    refused.push_listing_refresh.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_slot_cap_is_rechecked_after_the_pre_creation_awaits(monkeypatch):
     """The first cap test is necessary but not sufficient: body parsing and agent
     resolution both await, so concurrent imports near the cap all clear it before

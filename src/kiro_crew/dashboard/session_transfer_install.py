@@ -1109,6 +1109,9 @@ async def _install_arrived_bundle(
         return await _refuse_as_deleted("the delete witness fired after the finalization tail")
 
     _sync_dashboard_slots(state)
+    # The slot left ``_slots`` for the finalization tail, so the sync above finds its
+    # key already published; refresh Older Sessions, where the saved transcript showed.
+    state.push_listing_refresh()
     state.push_slots_update()
     return web.json_response(
         {
