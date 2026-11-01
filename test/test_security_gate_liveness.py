@@ -658,11 +658,12 @@ def _url_payload_command(n: int) -> str:
 #: Raised by 8 more, to 33,967, for the ``kirocrew-bin`` entry in
 #: ``paths_lists._WRITE_PROTECTED_HOME_PATHS``: the file-edit tool may not write the
 #: link that decides which ``kirocrew`` an agent shell runs. Deny-only.
-#: Raised by 24 more, from 33,967, for ``exfil._exfil_blob_hit``: the base64-blob
+#: Raised by 40 more, from 33,967, for ``exfil_git_object._exfil_blob_hit``: the base64-blob
 #: heuristic judged through one helper that skips a maximal match which is exactly
 #: a SHA-1 git object name (40 lowercase hex digits), so a commit permalink with
-#: the hash in its query renders. Data and one narrowing helper; no pattern moved.
-_PACKAGE_LINE_BUDGET = 33_991
+#: the hash in its query renders. Data and one narrowing helper in their own owner
+#: module beside ``exfil.py``, with its header; no pattern moved.
+_PACKAGE_LINE_BUDGET = 34_007
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
