@@ -52,6 +52,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Tuple
 
+from kiro_crew.acp.error_frames import RAW_FRAME_LOG_LABEL
 from kiro_crew.config.paths import config_dir
 from kiro_crew.dashboard.slot_projection import summary_rows
 from kiro_crew.metrics.events import (
@@ -223,9 +224,11 @@ def _is_internal(slot_key: str) -> bool:
 def scan_log_for_stalls(log_path: Path | None = None, now: float | None = None) -> Dict[str, dict]:
     """SECONDARY diagnostic: ``{slot_key: {reason, since_ts}}`` from the log tail.
 
-    The pre-structured detector, unchanged in what it matches. It is consulted
-    only to add evidence to a slot the structured view already shows as
-    running, and as the sole source when no state objects are reachable.
+    The pre-structured detector. It is consulted only to add evidence to a slot
+    the structured view already shows as running, and as the sole source when no
+    state objects are reachable. A signature that follows the raw-frame label
+    (``RAW_FRAME_LOG_LABEL``) is provider text echoed into that record and is
+    not read as a stall.
     """
     if log_path is None:
         log_path = config_dir() / "gateway.log"
@@ -249,6 +252,11 @@ def scan_log_for_stalls(log_path: Path | None = None, now: float | None = None) 
         for reason, pat in _PATTERNS:
             m = pat.search(line)
             if not m:
+                continue
+            # Provider text logged inside a raw-frame record can spell a stall
+            # signature; a match that follows that record's label is the
+            # harness's words, not this gateway's stall line.
+            if RAW_FRAME_LOG_LABEL in line[: m.start()]:
                 continue
             slot = _normalize_slot(m.group(1))
             if _is_internal(slot):
