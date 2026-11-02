@@ -45,6 +45,7 @@ from kiro_crew.crew_log.entry_types import (
     CREWMATE_WAITING_LIMIT,
 )
 from kiro_crew.history import HUMAN_TURN_META_KEY
+from kiro_crew.warm_task_brief_contract import WARM_TASK_BRIEF_MESSAGE_KINDS
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ def _option_items(rows: list[dict[str, Any]], answered_at: float = 0.0) -> list[
     from kiro_crew.dashboard.system_notices import is_system_notice
     from kiro_crew.preview_text import strip_markdown_preview
 
+    brief_options: list[str] = []
     for row in reversed(rows):
         if not isinstance(row, dict):
             continue
@@ -90,14 +92,27 @@ def _option_items(rows: list[dict[str, Any]], answered_at: float = 0.0) -> list[
         # docs/decisions), so any later reply, a quiet one too, retires it.
         if role not in ("user", "assistant") or is_system_notice(role, meta or {}):
             continue
+        # A warm brief carrying copied choices keeps the ask above it as the
+        # item's text, with the brief's (ledger-checked) choices; a brief with
+        # no choices retires the ask, as any newer reply does.
+        if isinstance(meta, dict) and meta.get("kind") in WARM_TASK_BRIEF_MESSAGE_KINDS:
+            copied = _parse_options(str(content or ""))
+            if not copied:
+                return []
+            brief_options = brief_options or copied
+            continue
         if not content:
             continue
         if role != "assistant":
             return []
         text = str(content)
-        options = _parse_options(text)
-        if not options:
+        own = chip_bar_options(text) if brief_options else _parse_options(text)
+        # The ask's text is used only when this row supplied the copied
+        # choices (a subset of its own, in order kept); choices copied from a
+        # note this reader skips belong to no ask here.
+        if not own or not set(brief_options) <= set(own):
             return []
+        options = brief_options or own
         question = _redact(strip_markdown_preview(_OPTIONS_RE.sub("", text).strip()))
         return [
             {
@@ -148,6 +163,21 @@ def _card_items(state: Any, slot: Any) -> list[dict[str, Any]]:
 
 #: Change-card outcomes that only a person's press produces.
 _PRESSED_STATUSES = frozenset({"applied", "partial", "failed", "cancelled"})
+
+
+def chip_bar_options(text: str) -> list[str]:
+    """The last marker's choices, split as the chip bar splits them.
+
+    Pipes when the marker's own line has one, else commas. The one rule both
+    the warm brief's copy and this reader use, so they cannot disagree.
+    """
+    from kiro_crew.dashboard.state import _parse_options
+
+    options = _parse_options(text)
+    marker = text[text.rfind("[OPTION") :].split("\n", 1)[0]
+    if len(options) == 1 and "|" not in marker:
+        options = [o.strip() for o in options[0].split(",") if o.strip()]
+    return options
 
 
 def _seconds(stamp: Any) -> float:
