@@ -41,6 +41,74 @@ from kiro_crew.validation import CHANNEL_MAX_LEN, MAX_CRON_MESSAGE, MAX_SHORT_ST
 
 _MIN_INTERVAL_SECS = 60
 
+_PROJECT_PATH_AGENT_ONLY = (
+    "project_path applies only to agent (message) jobs: a --script or "
+    "--command job runs no agent session, so it has no project rules to load."
+)
+
+
+def resolve_project_path(raw: str) -> str:
+    """Validate a job's ``project_path`` and return its resolved form.
+
+    ``""`` stays ``""`` (no project directory: today's cwd). Anything else must
+    be an absolute (or ``~``) path to an existing directory that is neither
+    UNC-shaped nor sensitive (``is_sensitive_path``, the fence the chat
+    folder ``project_dir`` and ``set_project`` apply). Raises ``ValueError``
+    naming the rule. Called on every write AND at every fire, so a directory
+    that was removed, or that a symlink now points somewhere sensitive, fails
+    the run loudly instead of running it with no project rules.
+    """
+    import os
+
+    from kiro_crew.hooks import is_unc_shape
+    from kiro_crew.security import is_sensitive_path
+
+    if not raw:
+        return ""
+    if not isinstance(raw, str):
+        raise ValueError("project_path must be a string")
+    if is_unc_shape(raw):
+        raise ValueError("project_path must be a local directory, not a network share")
+    if not os.path.isabs(raw) and not raw.startswith("~"):
+        raise ValueError("project_path must be an absolute path")
+    resolved = os.path.realpath(os.path.expanduser(raw))
+    if is_unc_shape(resolved) or is_sensitive_path(resolved):
+        raise ValueError("project_path refers to a sensitive path")
+    if not os.path.isdir(resolved):
+        raise ValueError(f"project_path is not an existing directory: {resolved}")
+    return resolved
+
+
+def cron_session_cwd(job: CronJob, resolved_cwd: str | None) -> str | None:
+    """The cwd a fire of *job* runs its agent session in.
+
+    A job with no ``project_path`` keeps *resolved_cwd* (the bound agent's
+    workspace, or ``None`` for the per-session scratch directory), so every
+    job written before the field existed fires exactly as it did. A job with
+    one runs there: the project directory outranks the agent's workspace,
+    because it is the more specific, per-job choice. The path is re-checked
+    here; a directory that cannot be used raises ``RuntimeError`` so
+    the run fails visibly rather than running without the project's rules.
+    Blocking (``realpath``/``isdir``): call it off the event loop.
+    """
+    # The store coerces a non-string to "" on load (``_guard_str``); the same
+    # reading here keeps a job object from any other source on today's cwd.
+    project_path = getattr(job, "project_path", "")
+    if not isinstance(project_path, str) or not project_path:
+        return resolved_cwd
+    try:
+        return resolve_project_path(project_path)
+    except ValueError as exc:
+        refusal = RuntimeError(
+            f"Cron '{job.name}': project_path {job.project_path!r} can no longer be "
+            f"used ({exc}), so the run did not start. Fix the directory, or clear it "
+            f"with `kirocrew cron update {job.id} --project-path ''`."
+        )
+        # Not weather: the transient-retry ladder must count it a failure.
+        refusal.transient = False  # type: ignore[attr-defined]
+        raise refusal from exc
+
+
 # Shown verbatim under the Schedule form's Save button, so it names the rule
 # and the next step rather than only the refusal.
 _CHAT_FOLDER_NEEDS_PERSISTENT = (
@@ -65,6 +133,8 @@ _CRON_STRING_FIELD_CAPS: tuple[tuple[str, int], ...] = (
     ("source_template_prompt", MAX_CRON_MESSAGE),
     ("folder_id", MAX_SHORT_STRING),
     ("chat_folder_id", MAX_SHORT_STRING),
+    # CLI-only today (no CRON_ADD_SCHEMA entry), so the general ID cap applies.
+    ("project_path", MAX_SHORT_STRING),
     ("session_key", MAX_SHORT_STRING),
     ("model", MAX_SHORT_STRING),
     ("command", 5000),
@@ -203,6 +273,7 @@ def build_job(
     hide_in_chat: bool = False,
     folder_id: str = "",
     chat_folder_id: str = "",
+    project_path: str = "",
     command: str = "",
     script: str = "",
     agent_sequence: list[str] | None = None,
@@ -272,6 +343,7 @@ def build_job(
             "created_by": created_by,
             "folder_id": folder_id,
             "chat_folder_id": chat_folder_id,
+            "project_path": project_path,
             "session_key": session_key,
             "model": model,
             "command": command,
@@ -283,6 +355,9 @@ def build_job(
     )
     if chat_folder_id and not persistent_session:
         raise ValueError(_CHAT_FOLDER_NEEDS_PERSISTENT)
+    if project_path and (command or script):
+        raise ValueError(_PROJECT_PATH_AGENT_ONLY)
+    project_path = resolve_project_path(project_path)
     validate_create_timeouts(timeout, timeout_secs, command=command, script=script)
     _auto_pause = (
         _AUTO_PAUSE_THRESHOLD
@@ -335,6 +410,7 @@ def build_job(
         hide_in_chat=hide_in_chat,
         folder_id=folder_id,
         chat_folder_id=chat_folder_id,
+        project_path=project_path,
         command=command,
         script=script,
         agent_sequence=list(agent_sequence) if agent_sequence else [],
@@ -519,6 +595,13 @@ def apply_job_update(
                 f"need >= {_eff_sub + _SUBPROC_CLEANUP_ALLOWANCE_SECS}, "
                 f"got {_eff_secs}"
             )
+    # Resolved before the first assignment so a refused directory leaves the
+    # job untouched. ``""`` clears it (back to today's cwd).
+    _project_path: str | None = None
+    if "project_path" in kwargs:
+        _project_path = resolve_project_path(kwargs["project_path"] or "")
+        if _project_path and (job.command or job.script):
+            raise ValueError(_PROJECT_PATH_AGENT_ONLY)
     # Resolved here, before the first assignment, because a member schedule
     # re-resolves its member's template and that can refuse: the job must be
     # left untouched when it does.
@@ -593,6 +676,8 @@ def apply_job_update(
         job.chat_folder_id = ""
     if "model" in kwargs:
         job.model = str(kwargs["model"] or "").strip()
+    if _project_path is not None:
+        job.project_path = _project_path
     if "app_manifest_digest" in kwargs:
         # The app bridge's own record of the manifest entry it applied. No
         # operator surface (dashboard, MCP, CLI) forwards this key, so the
