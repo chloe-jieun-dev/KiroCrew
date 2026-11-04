@@ -26,6 +26,36 @@ export interface ProjectAwsProfile {
   status?: 'ok' | 'expired' | 'unavailable' | null
 }
 
+/** GET /api/project/tree: one folder level of a project directory. */
+export interface ProjectTreePayload {
+  root: string
+  dir?: string
+  paths: string[]
+  directories?: string[]
+  repo: boolean
+  truncated?: boolean
+  truncatedDirectories?: string[]
+  hiddenOnlyDirectories?: string[]
+  unreadableDirectories?: string[]
+  linkedDirectories?: string[]
+  nestedRepoDirectories?: string[]
+}
+
+/** One file a chat session edited: absolute path, latest change time (ISO),
+ *  and whether it is still on disk. */
+export interface SessionFile {
+  path: string
+  ts: string
+  exists: boolean
+}
+
+/** GET /api/project/session-files. `truncated`: more files than listed, or a
+ *  file withheld (a sensitive path, a path the server could not resolve). */
+export interface SessionFilesPayload {
+  files: SessionFile[]
+  truncated: boolean
+}
+
 /** Deadline for the whole-tree walks, `api.fileSearch` and `api.projectTree`. Its own literal,
  *  deliberately not an alias of the skills menu's: the two happen to agree today, and retuning
  *  that menu must not silently retune these walks. The tree read shares this bound rather than
@@ -130,8 +160,21 @@ export function createFilesEndpoints({ post, put, del, j, jfetch: fetch, checkSe
     projectGitRepos: (slot: string) => fetch('/api/project/git/repos?slot=' + encodeURIComponent(slot)).then(j) as Promise<{ repos: { path: string; source: 'project' | 'agent' }[]; omitted: number; listed: number; incomplete: boolean }>,
     /** `dir` lists one project-relative folder (one the whole listing named in
      *  `truncatedDirectories`) instead of the whole tree; its paths stay project-relative. */
+    // One level per request (`shallow=1`): the folders inside come back in
+    // `lazyDirectories`, unread. They are folded into `nestedRepoDirectories`,
+    // the set the tree already lists on open with no state row, so opening a
+    // folder fetches just that folder and a large workspace never walks whole.
     projectTree: (path: string, dir?: string) => withJournaledDeadline(FILE_SEARCH_TIMEOUT_MS, undefined, '/api/project/tree', s =>
-      fetch('/api/project/tree?path=' + encodeURIComponent(path) + (dir ? '&dir=' + encodeURIComponent(dir) : ''), { signal: s }).then(j)) as Promise<{ root: string; dir?: string; paths: string[]; directories?: string[]; repo: boolean; truncated?: boolean; truncatedDirectories?: string[]; hiddenOnlyDirectories?: string[]; unreadableDirectories?: string[]; linkedDirectories?: string[]; nestedRepoDirectories?: string[] }>,
+      fetch('/api/project/tree?shallow=1&path=' + encodeURIComponent(path) + (dir ? '&dir=' + encodeURIComponent(dir) : ''), { signal: s })
+        .then(j)
+        .then((body: ProjectTreePayload & { lazyDirectories?: string[] }) => {
+          const lazy = body?.lazyDirectories
+          if (!Array.isArray(lazy) || lazy.length === 0) return body
+          return { ...body, nestedRepoDirectories: [...new Set([...(body.nestedRepoDirectories ?? []), ...lazy])].sort() }
+        })) as Promise<ProjectTreePayload>,
+    /** The files this chat session edited, newest first (`GET /api/project/session-files`). */
+    sessionFiles: (slot: string) => withJournaledDeadline(FILE_SEARCH_TIMEOUT_MS, undefined, '/api/project/session-files', s =>
+      fetch('/api/project/session-files?slot=' + encodeURIComponent(slot), { signal: s }).then(j)) as Promise<SessionFilesPayload>,
     workspaces: () => fetch('/api/workspaces').then(j),
     createWorkspace: (body: object) => post('/api/workspaces', body).then(j),
     updateWorkspace: (name: string, body: object) =>

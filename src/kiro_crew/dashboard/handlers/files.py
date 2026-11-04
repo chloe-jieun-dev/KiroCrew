@@ -257,6 +257,7 @@ from kiro_crew.dashboard.file_api.project_tree import (  # noqa: F401
     _project_tree_rebase,
     _project_tree_scandir,
     _project_tree_scandir_entries,
+    _project_tree_shallow_git,
     _project_tree_subdir,
     _project_tree_walk,
     _project_tree_walk_order,

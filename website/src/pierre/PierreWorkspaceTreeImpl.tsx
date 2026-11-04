@@ -45,7 +45,7 @@ import { recallExpandedPaths, rememberExpandedPaths } from './treeExpansionMemor
 import { planTreeStateRows, stateRowsMatchingFilter, STATE_ROW_ACTION_DECORATION, STATE_ROW_DECORATION, type TreeStateRowLabels } from './treeStateRows'
 import { recallDismissedUnreadable, rememberDismissedUnreadable } from './treeUnreadableDismissals'
 import { TreeSkeleton, type TreeReveal } from './tree'
-import { foldersOverRowBudget, mergeFolderListings, withFolder, type FolderListing } from './treeFolderListings'
+import { foldersOverRowBudget, mergeFolderListings, treeIsPartial, withFolder, type FolderListing } from './treeFolderListings'
 
 /** The kind vocabulary the composer's `@`-mention plumbing speaks: a file is
  *  staged + tokenized, a folder becomes a bare `@rel/` reference. Narrower than
@@ -450,7 +450,7 @@ function dedupeTreePaths(paths: string[]): string[] {
 }
 
 /** Open loaded folders one whole-tree poll re-reads, at most. */
-const FOLDER_REREADS_PER_POLL = 3
+const FOLDER_REREADS_PER_POLL = 10
 
 export function PierreWorkspaceTreeImpl({ projectDir, onFileOpen, onAddToContext, onUploadRequest, searchQuery, mode = 'all', selectedPath, persistExpansion = false, onOpenFolder, reveal, onRevealed, active = true }: {
   projectDir: string
@@ -619,13 +619,16 @@ export function PierreWorkspaceTreeImpl({ projectDir, onFileOpen, onAddToContext
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [baseTree, folderListingsKey],
   )
+  // Whether a folder is expanded, for the listing bound: it drops a closed
+  // listing before an open one. Bound once the tree model exists (below).
+  const folderOpenRef = useRef<(folder: string) => boolean>(() => false)
   const loadFolder = useCallback((folder: string) => {
     if (!folder) return
     evictedRef.current.delete(folder)
     setRefusedFolders(prev => (prev.some(entry => entry.folder === folder) ? prev.filter(entry => entry.folder !== folder) : prev))
     setLoadedFolders(prev => {
       if (prev.includes(folder)) return prev
-      const next = withFolder(prev, folder)
+      const next = withFolder(prev, folder, f => folderOpenRef.current(f))
       for (const dropped of prev) if (!next.includes(dropped)) evict(dropped)
       return next
     })
@@ -790,18 +793,24 @@ export function PierreWorkspaceTreeImpl({ projectDir, onFileOpen, onAddToContext
   // inheriting its old dismissal. Pruned against a landed payload only -- a
   // mount that has not heard from the server yet knows nothing about the
   // folders and must not forget them, or a reload would re-alert every visit.
-  // A TRUNCATED payload is partial knowledge too, but only where it was cut: a
-  // remembered folder absent from it is kept while the cut could be what hid
-  // it -- its parent is itself absent, or is named in `truncatedDirectories` --
+  // A PARTIAL payload (cut by the cap, or holding folders read only when
+  // opened, `treeIsPartial`) is partial knowledge too, but only where it is
+  // partial: a remembered folder absent from it is kept while that could be
+  // what hid it -- its parent is itself absent, cut (`truncatedDirectories`)
+  // or not read yet (`nestedRepoDirectories`) --
   // and forgotten when its parent is listed whole, which says the folder is
   // gone, so a folder recreated unreadable later alerts again.
   useEffect(() => {
     if (tree == null) return
     const current = unreadableFoldersRef.current
     const listed = new Set((tree.directories ?? []).map(path => path.replace(/\/$/, '')))
-    const cut = new Set(tree.truncatedDirectories ?? [])
+    const unread = new Set(tree.nestedRepoDirectories ?? [])
+    const cut = new Set([...(tree.truncatedDirectories ?? []), ...unread])
     const hiddenByCut = (folder: string) => {
-      if (tree.truncated !== true || listed.has(folder)) return false
+      if (!treeIsPartial(tree)) return false
+      // A folder listed but not read yet says nothing about whether it reads.
+      if (unread.has(folder)) return true
+      if (listed.has(folder)) return false
       const slash = folder.lastIndexOf('/')
       const parent = slash < 0 ? '' : folder.slice(0, slash)
       return cut.has(parent) || (parent !== '' && !listed.has(parent))
@@ -933,6 +942,15 @@ export function PierreWorkspaceTreeImpl({ projectDir, onFileOpen, onAddToContext
       return { text: label, title: label }
     },
   })
+  folderOpenRef.current = (folder: string) => {
+    const expanded = (path: string) => {
+      const item = model.getItem(path) as { isExpanded?: () => boolean } | null
+      return !!item && typeof item.isExpanded === 'function' && item.isExpanded()
+    }
+    // A folder shown open only through its chain row (`packages / core`) is
+    // open too: the chain's expansion is its last folder's.
+    return expanded(folder) || (childDirectoriesRef.current.get(folder) ?? []).some(expanded)
+  }
 
   // The tree endpoint returns paths relative to the PROJECT dir while git
   // status paths are relative to the REPO root — for a project dir that is a

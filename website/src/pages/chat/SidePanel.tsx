@@ -1130,6 +1130,9 @@ export default function SidePanel({
                 <FilesHomePanel
                   active={isActive && !panelHidden}
                   projectDir={projectDir ?? ''}
+                  // The confirmed key only: an unconfirmed one may name another
+                  // session (see `persistSlot`), whose edits are not this chat's.
+                  slot={(persistSlot !== undefined ? persistSlot : slot) || null}
                   title={viewTitles?.files}
                   // A diff open from the Changed segment opens the working-tree
                   // diff as its OWN tab (coexisting with any plain file tab for

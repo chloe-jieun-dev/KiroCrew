@@ -503,8 +503,8 @@ describe('PierreWorkspaceTreeImpl — folders past the row cap', () => {
     expect(bigCalls()).toBe(settled)
   })
 
-  it('re-reads at most three open loaded folders per whole-tree poll, in turn', async () => {
-    const folders = ['f1', 'f2', 'f3', 'f4', 'f5']
+  it('re-reads at most ten open loaded folders per whole-tree poll, in turn', async () => {
+    const folders = Array.from({ length: 12 }, (_, i) => `f${i}`)
     vi.mocked(api.projectTree).mockImplementation(async (_p, dir) => (dir
       ? { root: ROOT, dir, paths: [`${dir}/x.ts`], directories: [], repo: false, truncated: false, truncatedDirectories: [] }
       : mkTree({ paths: ['README.md'], directories: folders, truncated: true, truncatedDirectories: folders })))
@@ -518,9 +518,9 @@ describe('PierreWorkspaceTreeImpl — folders past the row cap', () => {
     const dirCalls = () => vi.mocked(api.projectTree).mock.calls.filter(c => c[1]).length
     await waitFor(() => expect(dirCalls()).toBe(folders.length))
     await act(async () => { await qc.refetchQueries({ queryKey: ['project-tree', ROOT], exact: true }) })
-    await waitFor(() => expect(dirCalls()).toBe(folders.length + 3))
+    await waitFor(() => expect(dirCalls()).toBe(folders.length + 10))
     await act(async () => { await new Promise<void>(resolve => queueMicrotask(resolve)) })
-    expect(dirCalls()).toBe(folders.length + 3)
+    expect(dirCalls()).toBe(folders.length + 10)
   })
 
   it('keeps the notice of a refused (403) folder until the user dismisses it, without re-fetching it', async () => {
