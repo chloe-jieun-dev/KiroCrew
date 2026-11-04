@@ -250,7 +250,7 @@ export function FeaturePreviewsSection() {
       <SettingsCard>
         <SettingsToggle
           label={i18nT('pages.developer.featurePreviewsTab.artifact_deploy')}
-          description={i18nT('pages.developer.featurePreviewsTab.artifact_deploy_desc')}
+          description={i18nT('pages.developer.featurePreviewsTab.artifact_deploy_desc_summary')} hint={i18nT('pages.developer.featurePreviewsTab.artifact_deploy_desc')}
           checked={artifactDeploy}
           onChange={v => setPreviewFlag(PREVIEW_ARTIFACT_DEPLOY, v)}
         />
@@ -308,7 +308,7 @@ export function FeaturePreviewsSection() {
       <SettingsCard>
         <SettingsToggle
           label={i18nT('pages.developer.featurePreviewsTab.crew_mode')}
-          description={i18nT('pages.developer.featurePreviewsTab.crew_mode_desc')}
+          hint={i18nT('pages.developer.featurePreviewsTab.crew_mode_desc')}
           checked={crewMode}
           onChange={v => setPreviewFlag(PREVIEW_CREW_MODE, v)}
         />
@@ -320,7 +320,7 @@ export function FeaturePreviewsSection() {
       <SettingsCard>
         <SettingsToggle
           label={i18nT('pages.developer.featurePreviewsTab.explore')}
-          description={i18nT('pages.developer.featurePreviewsTab.explore_desc')}
+          hint={i18nT('pages.developer.featurePreviewsTab.explore_desc')}
           checked={explore}
           onChange={v => setPreviewFlag(PREVIEW_EXPLORE, v)}
         />
@@ -336,7 +336,7 @@ export function FeaturePreviewsSection() {
         <SettingsCard>
           <SettingsToggle
             label={i18nT('sharedCrew.preview_title')}
-            description={i18nT('sharedCrew.preview_desc')}
+            hint={i18nT('sharedCrew.preview_desc')}
             checked={!!sharedCrewSetting && (sharedCrewSetting.env_override || sharedCrewSetting.enabled)}
             disabled={!sharedCrewSetting || sharedCrewSetting.env_override || sharedCrewPreview.saving}
             onChange={sharedCrewPreview.set}
@@ -378,7 +378,7 @@ export function FeaturePreviewsSection() {
       <SettingsCard>
         <SettingsToggle
           label={i18nT('pages.developer.featurePreviewsTab.chat_on_a_crew')}
-          description={i18nT('pages.developer.featurePreviewsTab.chat_on_a_crew_desc')}
+          hint={i18nT('pages.developer.featurePreviewsTab.chat_on_a_crew_desc')}
           checked={remoteCrewChat}
           onChange={v => setRemoteCrewChat(v)}
         />
@@ -396,7 +396,7 @@ export function FeaturePreviewsSection() {
       <SettingsCard>
         <SettingsToggle
           label={i18nT('pages.developer.featurePreviewsTab.layout_harness')}
-          description={i18nT('pages.developer.featurePreviewsTab.layout_harness_desc')}
+          hint={i18nT('pages.developer.featurePreviewsTab.layout_harness_desc')}
           checked={layoutHarness}
           onChange={v => setPreviewFlag(PREVIEW_LAYOUT_HARNESS, v)}
         />
@@ -418,7 +418,7 @@ export function FeaturePreviewsSection() {
       <SettingsCard>
         <SettingsToggle
           label={i18nT('pages.developer.featurePreviewsTab.folder_conductor')}
-          description={i18nT('pages.developer.featurePreviewsTab.folder_conductor_desc')}
+          hint={i18nT('pages.developer.featurePreviewsTab.folder_conductor_desc')}
           checked={folderConductor}
           onChange={v => setPreviewFlag(PREVIEW_FOLDER_CONDUCTOR, v)}
         />
@@ -429,7 +429,7 @@ export function FeaturePreviewsSection() {
       <SettingsCard>
         <SettingsToggle
           label={i18nT('pages.developer.featurePreviewsTab.crewmate_harness')}
-          description={i18nT('pages.developer.featurePreviewsTab.crewmate_harness_desc')}
+          hint={i18nT('pages.developer.featurePreviewsTab.crewmate_harness_desc')}
           checked={crewmateHarness}
           onChange={v => setPreviewFlag(PREVIEW_CREWMATE_HARNESS, v)}
         />
@@ -459,7 +459,7 @@ export function FeaturePreviewsSection() {
       <SettingsCard>
         <SettingsToggle
           label={i18nT('sessionEnvironments.title')}
-          description={i18nT('sessionEnvironments.description')}
+          hint={i18nT('sessionEnvironments.description')}
           checked={sessionEnvironments}
           onChange={value => setPreviewFlag(PREVIEW_SESSION_ENVIRONMENTS, value)}
         />

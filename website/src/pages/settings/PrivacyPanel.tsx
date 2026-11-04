@@ -226,7 +226,7 @@ export function PrivacyPanel() {
           renderControl={({ checked, onChange, disabled }) => (
             <SettingsToggle
               label={i18nT('privacyDisclosure.toggleLabel')}
-              description={i18nT('privacyDisclosure.toggleDescription')}
+              hint={i18nT('privacyDisclosure.toggleDescription')}
               checked={checked}
               onChange={onChange}
               disabled={disabled}
