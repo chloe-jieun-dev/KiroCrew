@@ -90,6 +90,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         acp_error_is_throttle,
         acp_error_is_transient,
         acp_error_needs_fresh_credentials,
+        acp_error_needs_sign_in,
         connection_recovery_open,
         connection_retry_delay,
         credential_give_up_text,

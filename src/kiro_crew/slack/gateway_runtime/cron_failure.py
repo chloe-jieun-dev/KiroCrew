@@ -370,11 +370,15 @@ async def _cron_single_failure(
     _gate_counted: bool,
     _job_owns_failure: bool,
     _hand_over_streak: bool,
+    *,
+    _auth_expiry: bool = False,
 ) -> None:
     """Alert a failed single-agent cron run, or suppress a duplicate, and charge it.
 
     Called from the turn's failure handler, which re-raises *exc* afterwards.
     Every await precedes the charge, so a cancellation mid-alert counts nothing.
+    ``_auth_expiry`` (see ``_cron_auth_expiry``) is passed on to the charge, so
+    the failure counts like any other but never auto-pauses the job.
     """
     # ── Failure dedup: suppress repeated identical crash notifications ──
     # A chain-exhaustion failure carries the fallback story on the
@@ -425,7 +429,7 @@ async def _cron_single_failure(
     if not _failure_alert_due(job, streak):
         # A held alert is still a failed run: charge it, as the dup branch does.
         if _charges:
-            _charge_failure(job, _hand_over_streak)
+            _charge_failure(job, _hand_over_streak, auth_expiry=_auth_expiry)
         limit = job.alert_after_limit()
         logger.info(
             "Cron '%s': failure %d of %d held below alert_after_failures",
@@ -457,7 +461,7 @@ async def _cron_single_failure(
         # on five distinct failures, or the failure belonged to a
         # shared runtime rather than to this job.
         if not _gate_counted and _job_owns_failure:
-            _charge_failure(job, _hand_over_streak)
+            _charge_failure(job, _hand_over_streak, auth_expiry=_auth_expiry)
         if job.auto_paused:
             logger.warning(
                 "Cron '%s' auto-paused after %d consecutive failures",
@@ -603,7 +607,7 @@ async def _cron_single_failure(
     # verdict already counted THIS run, or when the failure belonged
     # to a runtime this job was sharing rather than to the job.
     if not _gate_counted and _job_owns_failure:
-        _charge_failure(job, _hand_over_streak)
+        _charge_failure(job, _hand_over_streak, auth_expiry=_auth_expiry)
     if job.auto_paused:
         logger.warning(
             "Cron '%s' auto-paused after %d consecutive failures",
