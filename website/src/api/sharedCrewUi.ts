@@ -22,6 +22,7 @@ import {
   type SharedCrewCapabilities,
   type SharedDecision,
 } from './sharedCrew'
+import type { InviteRecord } from './sharedCrewInvites'
 
 /** One row of `GET /api/shared-crew/sessions`: a catalog row plus its attribution. */
 export interface SharedCrewSessionItem {
@@ -58,7 +59,7 @@ export interface PeopleRow {
   usage?: { active: number; queued: number } | null
   /** The alias and avatar the owner gave an invited teammate, bound by the
    *  server to this row's verified tailnet login. Display only. */
-  member?: { alias: string; avatar_id: string; profile_pic_url: string }
+  member?: { alias: string; avatar_id: string; profile_pic_url: string; invite_id?: string }
   /** The stable Tailscale user id, when this Crew knows it: the key the
    *  display route edits. Absent rows cannot be renamed here. */
   tailscale_user_id?: string
@@ -139,6 +140,19 @@ export function sharedCrewPreviewOn(capabilities: SharedCrewCapabilities): boole
  *  surfaces come back once a teammate connects again. */
 export function someoneJoined(rows: readonly PeopleRow[] | null | undefined): boolean {
   return (rows ?? []).some(row => !row.is_owner && !isUnknownPrincipal(row.principal) && (row.sources ?? []).includes('observed'))
+}
+
+/** The invites to list as People rows: email invites nobody has accepted, from
+ *  any sharing path. A person is one row, so an invite whose address is the login
+ *  of a current member (a row carrying `member.invite_id`) is not listed. A row
+ *  merely seen, or named by the daemon, is not a member: its invite is still live
+ *  and stays listed so it can be revoked. A link invite names nobody and belongs
+ *  to the invite dialog. Emails and logins compare case-insensitively. */
+export function waitingInvites<T extends InviteRecord>(people: readonly PeopleRow[], invites: readonly T[]): T[] {
+  const members = new Set(
+    people.filter(row => row.member?.invite_id).map(row => row.principal.display.login.trim().toLowerCase()).filter(Boolean),
+  )
+  return invites.filter(i => i.status === 'pending' && i.kind === 'email' && !members.has(i.email.trim().toLowerCase()))
 }
 
 /** Whether an enterprise policy closes Tailscale invites on this gateway. */

@@ -15,7 +15,10 @@ import {
   ALL_UNAVAILABLE,
   principalInitials,
   principalName,
+  waitingInvites,
+  type PeopleRow,
 } from './sharedCrewUi'
+import type { TailscaleInvite } from './sharedCrewInvites'
 
 const work = (over: Partial<AcceptedWork> = {}): AcceptedWork => ({
   work_id: 'w1', session_key: 's1', operation: 'chat_turn', state: 'queued', revision: 1,
@@ -162,5 +165,47 @@ describe('shared-access setup paths', () => {
     })
     expect(sharedAccessConfigured(paths('available'))).toBe(true)
     expect(sharedAccessConfigured(paths('degraded'))).toBe(false)
+  })
+})
+
+describe('waitingInvites: each person is one row', () => {
+  const seen = (login: string): PeopleRow => ({ principal: person('Kyle', login), sources: ['observed'] })
+  const member = (login: string): PeopleRow => ({
+    ...seen(login),
+    member: { alias: '', avatar_id: '', profile_pic_url: '', invite_id: 'i0' },
+  })
+  const invite = (over: Partial<TailscaleInvite> = {}): TailscaleInvite => ({
+    id: 'i1', transport: 'tailscale', kind: 'email', email: 'kyle@example.test', multi_use: false, alias: '', avatar_id: '',
+    created_at: 1, status: 'pending', accepted_login: '', ...over,
+  })
+
+  it('keeps a pending invite for someone who is not in the list', () => {
+    expect(waitingInvites([member('other@example.test')], [invite()]).map(i => i.id)).toEqual(['i1'])
+  })
+
+  it('drops a pending email invite for a current member, ignoring case and spaces', () => {
+    expect(waitingInvites([member('Kyle@Example.test')], [invite({ email: ' kyle@example.test ' })])).toEqual([])
+  })
+
+  it('keeps the invite of a row that is only seen or named, which is not a member', () => {
+    expect(waitingInvites([seen('kyle@example.test')], [invite()]).map(i => i.id)).toEqual(['i1'])
+    expect(waitingInvites([{ ...seen('kyle@example.test'), sources: ['tailscale_share'] }], [invite()]).map(i => i.id)).toEqual(['i1'])
+  })
+
+  it('never lists an accepted invite', () => {
+    expect(waitingInvites([], [invite({ status: 'accepted', accepted_login: 'kyle@example.test' })])).toEqual([])
+  })
+
+  it('leaves a link invite to the invite dialog, since it names nobody', () => {
+    expect(waitingInvites([member('kyle@example.test')], [invite({ id: 'l1', kind: 'link', email: '' })])).toEqual([])
+  })
+
+  it('takes invites from any sharing path', () => {
+    const other = { ...invite({ id: 's1' }), transport: 'ssm' } as unknown as TailscaleInvite
+    expect(waitingInvites([], [invite(), other]).map(i => i.id)).toEqual(['i1', 's1'])
+  })
+
+  it('a member row with no login matches no invite', () => {
+    expect(waitingInvites([member('')], [invite()]).map(i => i.id)).toEqual(['i1'])
   })
 })
