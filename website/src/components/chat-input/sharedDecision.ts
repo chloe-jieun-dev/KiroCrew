@@ -63,16 +63,6 @@ export function resolvedByLine(decision: SharedDecision, viewerId = ''): string 
     : i18nT('sharedCrew.rejected_by_person', { name })
 }
 
-/** What a pending decision waits on, named by the person whose turn raised it:
- *  "Alice's action awaits approval" / "Kiro is waiting for your answer". */
-export function waitingLine(decision: SharedDecision, viewerId = ''): string {
-  const w = who(decision.initiator, viewerId)
-  if (decision.kind === 'question') {
-    return w.self ? i18nT('sharedCrew.question_waiting_you') : i18nT('sharedCrew.question_waiting', { name: w.name })
-  }
-  return w.self ? i18nT('sharedCrew.approval_waiting_you') : i18nT('sharedCrew.approval_waiting', { name: w.name })
-}
-
 /** "Already approved elsewhere": a lost race told without naming anyone. */
 export function settledElsewhereLine(decision: SharedDecision): string {
   return decisionVerdict(decision) === 'approved' ? i18nT('sharedCrew.already_approved') : i18nT('sharedCrew.already_rejected')
