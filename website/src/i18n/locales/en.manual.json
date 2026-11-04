@@ -9676,8 +9676,6 @@
         "decisions_runtime_retry": "Try again",
         "folder_conductor": "Folder conductor",
         "folder_conductor_desc": "Lifts the chat that started a folder's other chats to the top of that folder: an accent bar down its left edge and a small conductor tag beside the agent name. This changes the order of the Sessions list, so the list stays as it is until you turn it on. The folder menu's chat item is always there.",
-        "crewmate_harness": "Agent harness per mate",
-        "crewmate_harness_desc": "Adds an Agent harness setting to each mate's profile, so one mate can run on a different AI coding tool, such as Claude Code, with that tool's models, while the rest keep the default.",
         "crew_mode": "Ultra Mode",
         "crew_mode_desc": "Lets a chat hand tasks to a crew and track them on a Board.",
         "explore": "Explore",
@@ -9778,6 +9776,9 @@
       "profile_harness_inherited_hint": "Follows the crew default (now {{harness}}).",
       "profile_harness_no_workers": "{{name}} can chat on this harness, but its workers cannot start on it.",
       "profile_harness_cannot_start": "Can't start here.",
+      "profile_harness_not_offered": "Not offered for crewmates here. Choose another harness, or Inherited.",
+      "profile_harness_no_worker_tool_limits": "{{name}}'s workers run here, but a worker with single tools turned off can't start.",
+      "profile_harness_unavailable_value": "{{harness}} (unavailable)",
       "profile_harness_saved": "Saved. {{name}}'s next message starts on this harness.",
       "profile_harness_unavailable": "{{name}} is set to run on {{harness}}, which can't start here, so its chats and workers don't start either. Choose another agent harness, or Inherited.",
       "profile_harness_choose": "Choose an agent harness"

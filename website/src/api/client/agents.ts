@@ -166,10 +166,15 @@ export interface AgentResolvedModel {
   harness_model?: string
   /** Why the pinned harness cannot start, when it cannot. */
   harness_error?: string
-  /** Every harness a crewmate may be pinned to. */
+  /** The harnesses a crewmate may be pinned to here: selectable on this gateway
+   *  and crewmate-capable (`crewmate_harness.crewmate_harnesses`). A save takes
+   *  only these, so the picker offers exactly this list and never its own. */
   harnesses?: string[]
   /** The harnesses a crewmate's worker sessions can run on. */
   worker_harnesses?: string[]
+  /** The harnesses where a worker's single-tool limits hold; elsewhere a worker
+   *  with one is refused before it starts. */
+  worker_tool_limit_harnesses?: string[]
   /** The harness whose own model list the editor offers, when it is not the configured one. */
   models_backend?: string
   /** The id that harness serves the pin as (`''` for none); absent until a session advertises. */
