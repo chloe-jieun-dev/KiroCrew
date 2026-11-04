@@ -431,14 +431,19 @@ def _overlong_commands(spec: dict[str, Any]) -> list[OverlongHookCommand]:
 
 
 def overlong_spec_hook_commands(
-    agent_id: str, project_dir: str | None = None, *, session_key: str = ""
+    agent_id: str,
+    project_dir: str | None = None,
+    *,
+    session_key: str = "",
+    prefer_newest: bool = False,
 ) -> list[OverlongHookCommand]:
     """The active spec's hooks that do not run because their command is too long.
 
     For the session-start notice. Reads the spec :func:`crew_fired_spec_hooks`
-    reads; raises when it cannot be read.
+    reads (*prefer_newest* as there); raises when it cannot be read.
     """
-    return _overlong_commands(_agent_spec(agent_id, project_dir, session_key))
+    spec = _agent_spec(agent_id, project_dir, session_key, prefer_newest=prefer_newest)
+    return _overlong_commands(spec)
 
 
 def _hook(agent_id: str, event: str, index: int, entry: dict, timeout: int) -> ScriptHook | None:
@@ -872,7 +877,11 @@ def _convert(agent_id: str, spec: dict[str, Any]) -> tuple[tuple[ScriptHook, ...
 
 
 def _agent_spec(
-    agent_id: str, project_dir: str | None = None, session_key: str = ""
+    agent_id: str,
+    project_dir: str | None = None,
+    session_key: str = "",
+    *,
+    prefer_newest: bool = False,
 ) -> dict[str, Any]:
     """*agent_id*'s spec, or ``{}`` when it has none on disk.
 
@@ -895,12 +904,24 @@ def _agent_spec(
     session's merged spec (``mate_worker.mate_service_scope_spec``), the one its
     projection was handed, so the hooks its crewmate's file carries are the ones
     that fire.
+
+    *prefer_newest* is :func:`spec_prefers_newest` of the session: on KAS the
+    user-level read takes the newest of differing same-name specs, as the
+    projection does (``harness.kas.resolve_projected_spec``), so the hooks that
+    fire are the started spec's rather than a refusal that blocks every call.
     """
-    return _agent_spec_with_origin(agent_id, project_dir, session_key)[0]
+    spec, _origin = _agent_spec_with_origin(
+        agent_id, project_dir, session_key, prefer_newest=prefer_newest
+    )
+    return spec
 
 
 def _agent_spec_with_origin(
-    agent_id: str, project_dir: str | None = None, session_key: str = ""
+    agent_id: str,
+    project_dir: str | None = None,
+    session_key: str = "",
+    *,
+    prefer_newest: bool = False,
 ) -> tuple[dict[str, Any], str]:
     """:func:`_agent_spec` and where it came from: ``"project"`` or ``"user"``."""
     # circular import: the ACP layer imports the config loader, which sits below
@@ -931,7 +952,10 @@ def _agent_spec_with_origin(
     agents_dir = spec_dir_for(agent_id)
     if agent_spec_absent(agents_dir, agent_id):
         return {}, "user"
-    return load_agent_spec(agents_dir, agent_id), _user_dir_origin(agents_dir)
+    # The crewmate folder is read without it, as the projection reads it there.
+    newest = prefer_newest and not is_mate_service_agent(agent_id)
+    spec = load_agent_spec(agents_dir, agent_id, prefer_newest=newest)
+    return spec, _user_dir_origin(agents_dir)
 
 
 def _user_dir_origin(agents_dir: Path) -> str:
@@ -978,7 +1002,9 @@ def kas_spec_load_error(agents_dir: Path, agent_id: str) -> str | None:
     )
 
     try:
-        spec = load_agent_spec(agents_dir, agent_id)
+        # ``prefer_newest``: the user-level read KAS runs takes the newest of
+        # differing same-name specs (``harness.kas.resolve_projected_spec``).
+        spec = load_agent_spec(agents_dir, agent_id, prefer_newest=True)
         prompt = spec.get("prompt")
         # A blank or absent prompt takes resolve_prompt's constant fallback and
         # cannot fail; skipping it avoids that function's warning per probe.
@@ -1021,12 +1047,25 @@ def spec_project_dir(provider: object) -> str | None:
     return work_dir if isinstance(work_dir, str) and work_dir else None
 
 
+def spec_prefers_newest(provider: object) -> bool:
+    """Whether *provider*'s session runs the newest of differing same-name user specs.
+
+    True on KAS alone, which runs the spec Crew projects and Crew projects the
+    newest (``harness.kas.resolve_projected_spec``). Every other backend's spec
+    read keeps refusing such a set, since Crew does not choose its file.
+    """
+    from kiro_crew.agent_sdk.backends import ACP_BACKEND_KAS
+
+    return capabilities_of(provider).backend == ACP_BACKEND_KAS
+
+
 def crew_fired_spec_hooks(
     agent_id: str,
     project_dir: str | None = None,
     *,
     translates_tools_settings: bool = False,
     session_key: str = "",
+    prefer_newest: bool = False,
 ) -> tuple[list[ScriptHook], list[str], int]:
     """The active agent spec's hooks as script hooks, the keys nothing carries, and
     how many ``confirm: true`` hooks are skipped.
@@ -1039,13 +1078,16 @@ def crew_fired_spec_hooks(
     :func:`spec_project_dir` of the session. *translates_tools_settings* is true
     only for a KAS session, the one backend that receives ``toolsSettings`` as
     ``permissions`` rules. *session_key* reads a crewmate's worker as
-    that session's merged spec (:func:`_agent_spec`).
+    that session's merged spec, and *prefer_newest* is :func:`spec_prefers_newest`
+    of the session (:func:`_agent_spec`).
     """
     # circular import: the ACP layer imports the config loader, which sits below
     # this module; resolved at call time like the other driver seams here.
     from kiro_crew.acp.kas_agents import spec_keys_without_carrier
 
-    spec, origin = _agent_spec_with_origin(agent_id, project_dir, session_key)
+    spec, origin = _agent_spec_with_origin(
+        agent_id, project_dir, session_key, prefer_newest=prefer_newest
+    )
     hooks, unconfirmable = _convert(agent_id, spec)
     lost = spec_keys_without_carrier(spec, translates_tools_settings=translates_tools_settings)
     # Copies, so the cached conversion keeps no origin: the same hooks can come
@@ -1197,6 +1239,7 @@ async def turn_spec_hooks(provider: object, agent_id: str) -> TurnSpecHooks:
                 agent_id,
                 spec_project_dir(provider),
                 session_key=session_key,
+                prefer_newest=spec_prefers_newest(provider),
             )
         )
     except Exception:  # noqa: BLE001 - the caller fails permission requests closed
@@ -1253,7 +1296,7 @@ async def hook_projection_stale(provider: object, agent_id: str) -> bool:
         )
 
         # A built-in mode with no spec: only the Hooks page's hooks count.
-        spec = _agent_spec(agent_id, None, session_key)
+        spec = _agent_spec(agent_id, None, session_key, prefer_newest=spec_prefers_newest(provider))
         covered = hook_gated_capabilities(
             pre_tool_hook_matchers(agent_id, spec),
             mcp_servers=approved_mcp_servers(approved),

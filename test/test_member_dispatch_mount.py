@@ -894,7 +894,9 @@ class TestRuntimeMemberThreading:
         import kiro_crew.mcp_gateway.session_servers as session_servers_mod
 
         monkeypatch.setattr(paths_mod, "kiro_agents_dir", lambda: Path("/agents"))
-        monkeypatch.setattr(kas_agents_mod, "load_agent_spec", lambda _dir, agent: {"name": agent})
+        monkeypatch.setattr(
+            kas_agents_mod, "load_agent_spec", lambda _dir, agent, **_kw: {"name": agent}
+        )
         monkeypatch.setattr(
             session_servers_mod, "injection_server_names", lambda _o, _a: frozenset()
         )
@@ -972,7 +974,9 @@ class TestMemberServerJoinsSubtraction:
         import kiro_crew.mcp_gateway.session_servers as session_servers_mod
 
         monkeypatch.setattr(paths_mod, "kiro_agents_dir", lambda: Path("/agents"))
-        monkeypatch.setattr(kas_agents_mod, "load_agent_spec", lambda _dir, agent: {"name": agent})
+        monkeypatch.setattr(
+            kas_agents_mod, "load_agent_spec", lambda _dir, agent, **_kw: {"name": agent}
+        )
         monkeypatch.setattr(
             session_servers_mod, "injection_server_names", lambda _o, _a: frozenset()
         )
@@ -1012,7 +1016,9 @@ class TestMemberServerJoinsSubtraction:
         import kiro_crew.mcp_gateway.session_servers as session_servers_mod
 
         monkeypatch.setattr(paths_mod, "kiro_agents_dir", lambda: Path("/agents"))
-        monkeypatch.setattr(kas_agents_mod, "load_agent_spec", lambda _dir, agent: {"name": agent})
+        monkeypatch.setattr(
+            kas_agents_mod, "load_agent_spec", lambda _dir, agent, **_kw: {"name": agent}
+        )
         monkeypatch.setattr(
             session_servers_mod, "injection_server_names", lambda _o, _a: frozenset()
         )
