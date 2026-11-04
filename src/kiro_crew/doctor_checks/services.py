@@ -389,7 +389,24 @@ def _doctor_configuration(cfg: KiroCrewConfig, issues: list[str]) -> DashboardBi
     # Dashboard auth mode. Both this section and the Slack section key off the
     # SAME credential read and the same token pair, so the two can never
     # disagree about whether Slack is configured.
-    creds = cfg.load_credentials()
+    # A sandbox that denies the credentials file raises PermissionError from
+    # the read; doctor reports that file as unreadable here and goes on with
+    # the credentials the process environment holds, rather than ending the
+    # whole report on a traceback.
+    try:
+        creds = cfg.load_credentials()
+    except PermissionError as exc:
+        from kiro_crew.config import loader_credentials
+
+        creds = loader_credentials.resolve_env_credentials(
+            {k: v for k in loader_credentials.CREDENTIAL_KEYS if (v := os.environ.get(k, ""))}
+        )
+        reason = exc.strerror or "permission denied"
+        print(
+            f"  credentials: ⚠️  unreadable here ({reason});"
+            " run doctor outside the sandbox to check them"
+        )
+        issues.append("credentials file unreadable (permission denied)")
     _has_slack = bool(creds.get("SLACK_APP_TOKEN") and creds.get("SLACK_BOT_TOKEN"))
     _local = cli_doctor.is_local_only(_host, _has_slack)
     if _local:
